@@ -11,9 +11,12 @@ import type {
   CharacterType,
   FxSpec,
   PathDef,
+  QualityLevel,
   Scene,
   SceneApi,
   SystemName,
+  ThemeName,
+  ViewInsets,
 } from "../types";
 
 export type { Scene } from "../types";
@@ -23,6 +26,7 @@ export function createScene(container: HTMLElement): Scene {
   const body = new BodyBuilder();
   mgr.scene.add(body.root);
   mgr.registerUpdater((dt) => body.update(dt));
+  mgr.onThemeChange((theme) => body.setTheme(theme));
 
   const highlighter = new OrganHighlighter(
     mgr.camera,
@@ -107,7 +111,7 @@ export function createScene(container: HTMLElement): Scene {
     setSystemOpacity(target: SystemName | "all", opacity: number): void {
       body.setSystemOpacity(target, opacity);
     },
-    setQuality(level: "low" | "high"): void {
+    setQuality(level: QualityLevel): void {
       mgr.setQuality(level);
     },
     resize(): void {
@@ -136,6 +140,12 @@ export function createScene(container: HTMLElement): Scene {
     },
     onEmptyClick(cb: () => void): void {
       highlighter.onEmptyClick(cb);
+    },
+    setTheme(theme: ThemeName): void {
+      mgr.setTheme(theme);
+    },
+    setViewInsets(insets: ViewInsets): void {
+      mgr.setViewInsets(insets);
     },
   };
 }

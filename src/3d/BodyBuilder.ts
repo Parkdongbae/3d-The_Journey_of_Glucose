@@ -3,14 +3,13 @@ import {
   CatmullRomCurve3,
   Color,
   CylinderGeometry,
-  DoubleSide,
   ExtrudeGeometry,
   Group,
   MathUtils,
   Mesh,
-  MeshPhysicalMaterial,
-  MeshStandardMaterial,
+  type MeshStandardMaterial,
   Shape,
+  type ShaderMaterial,
   SphereGeometry,
   TorusGeometry,
   TubeGeometry,
@@ -18,6 +17,16 @@ import {
 } from "three";
 import { ORGAN_MAP } from "../data/organs";
 import type { OrganMeta, OrganShape, OrganSystem, SystemName, Vec3 } from "../types";
+import {
+  applySkinTheme,
+  depthOnly,
+  glowing,
+  membrane,
+  organTissue,
+  skinGlass,
+  tissueColor,
+  type ThemeName,
+} from "./materials";
 
 function disposeObject(root: Group): void {
   root.traverse((obj) => {
@@ -29,7 +38,6 @@ function disposeObject(root: Group): void {
   });
 }
 
-const SKIN_COLOR = 0xf5cdb0;
 const FADE_SEC = 0.4;
 const BREATH_PERIOD = 4;
 const DIM_FACTOR = 0.35;
@@ -109,29 +117,39 @@ export class BodyBuilder {
 
   // ---------------------------------------------------------------- skin shell
 
+  private skinMat: ShaderMaterial = skinGlass("light");
+
+  /**
+   * 유리 피부: 깊이 전용 패스로 캡슐끼리 겹친 안쪽 면을 가린 뒤 프레넬 유리를 한 겹만 그린다.
+   * 다른 모든 반투명체(캐릭터·잔상·FX)보다 뒤에 그려야 몸속 물체가 깊이에 잘리지 않는다.
+   */
   private buildSkin(): void {
-    const mat = new MeshStandardMaterial({
-      color: SKIN_COLOR,
-      roughness: 0.9,
-      metalness: 0,
-      transparent: true,
-      opacity: 0.15,
-      depthWrite: false,
-    });
+    const depthMat = depthOnly();
+    depthMat.transparent = true; // 불투명 기관보다 나중(투명 패스)에 깊이를 쓴다
     const add = (geo: CapsuleGeometry | SphereGeometry, x: number, y: number, z: number, rotZ = 0): void => {
-      const m = new Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.rotation.z = rotZ;
-      m.renderOrder = 5; // 반투명 피부는 기관 뒤에서 그려짐 (기관이 비쳐 보임)
-      this.skinGroup.add(m);
+      for (const [mat, order] of [
+        [depthMat, 30],
+        [this.skinMat, 31],
+      ] as const) {
+        const m = new Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.rotation.z = rotZ;
+        m.renderOrder = order;
+        m.userData.noAO = true;
+        this.skinGroup.add(m);
+      }
     };
-    add(new CapsuleGeometry(1.15, 4.3, 10, 28), 0, 10.4, 0); // torso
-    add(new SphereGeometry(1.08, 36, 24), 0, 14.15, 0); // head
-    add(new CapsuleGeometry(0.4, 0.6, 8, 18), 0, 13.15, 0); // neck
-    add(new CapsuleGeometry(0.36, 5.3, 8, 18), 1.52, 9.7, 0, -0.1); // left arm
-    add(new CapsuleGeometry(0.36, 5.3, 8, 18), -1.52, 9.7, 0, 0.1); // right arm
-    add(new CapsuleGeometry(0.5, 6.3, 8, 20), 0.62, 3.55, 0); // left leg
-    add(new CapsuleGeometry(0.5, 6.3, 8, 20), -0.62, 3.55, 0); // right leg
+    add(new CapsuleGeometry(1.15, 4.3, 12, 40), 0, 10.4, 0); // torso
+    add(new SphereGeometry(1.08, 48, 32), 0, 14.15, 0); // head
+    add(new CapsuleGeometry(0.4, 0.6, 8, 24), 0, 13.15, 0); // neck
+    add(new CapsuleGeometry(0.36, 5.0, 8, 24), 2.1, 10.2, 0, 0.23); // left arm (골격 팔 각도에 맞춤)
+    add(new CapsuleGeometry(0.36, 5.0, 8, 24), -2.1, 10.2, 0, -0.23); // right arm
+    add(new CapsuleGeometry(0.5, 6.3, 8, 28), 0.62, 3.55, 0); // left leg
+    add(new CapsuleGeometry(0.5, 6.3, 8, 28), -0.62, 3.55, 0); // right leg
+  }
+
+  setTheme(theme: ThemeName): void {
+    applySkinTheme(this.skinMat, theme);
   }
 
   // -------------------------------------------------------------- organ build
@@ -149,6 +167,8 @@ export class BodyBuilder {
     for (const mesh of meshes) {
       group.add(mesh);
       mesh.userData.organId = meta.id;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {
         const std = mat as MeshStandardMaterial;
@@ -180,7 +200,7 @@ export class BodyBuilder {
     const shape: OrganShape = meta.shape;
     switch (shape.kind) {
       case "sphere":
-        return [this.sphereMesh(this.organMaterial(meta.color), shape.radius, shape.scale)];
+        return [this.sphereMesh(organTissue(meta.id, meta.color), shape.radius, shape.scale)];
       case "pair":
         return this.buildPair(meta, shape);
       case "tube":
@@ -196,7 +216,7 @@ export class BodyBuilder {
       case "liver":
         return this.buildLiver(meta);
       case "gallbladder":
-        return [this.sphereMesh(this.organMaterial(meta.color), 0.17, { x: 0.9, y: 1.4, z: 0.9 })];
+        return [this.sphereMesh(organTissue(meta.id, meta.color), 0.17, { x: 0.9, y: 1.4, z: 0.9 })];
       case "pancreas":
         return this.buildPancreas(meta);
       case "intestineCoil":
@@ -210,7 +230,7 @@ export class BodyBuilder {
       case "ureterPair":
         return this.buildUreters(meta);
       case "bladder":
-        return [this.sphereMesh(this.organMaterial(meta.color), 0.42, { x: 1.2, y: 1, z: 1 })];
+        return [this.sphereMesh(organTissue(meta.id, meta.color), 0.42, { x: 1.2, y: 1, z: 1 })];
       case "alveoli":
         return this.buildAlveoli(meta);
       case "diaphragm":
@@ -218,21 +238,6 @@ export class BodyBuilder {
       case "muscleCell":
         return this.buildMuscleCell(meta);
     }
-  }
-
-  /** 젖은 기관 질감: 클리어코트 물성 + 부드러운 거칠기 */
-  private organMaterial(color: number, opacity = 1): MeshPhysicalMaterial {
-    return new MeshPhysicalMaterial({
-      color,
-      roughness: 0.42,
-      metalness: 0,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.5,
-      envMapIntensity: 1.1,
-      transparent: opacity < 0.999,
-      opacity,
-      depthWrite: opacity > 0.6,
-    });
   }
 
   private sphereMesh(mat: MeshStandardMaterial, radius: number, scale?: Vec3): Mesh {
@@ -246,14 +251,14 @@ export class BodyBuilder {
     const pts = localPoints.map((p) => new Vector3(p.x, p.y, p.z));
     const curve = new CatmullRomCurve3(pts, false, "centripetal");
     const geo = new TubeGeometry(curve, segments, radius, 20, false);
-    return new Mesh(geo, this.organMaterial(meta.color));
+    return new Mesh(geo, organTissue(meta.id, meta.color));
   }
 
   // pair (폐)
   private buildPair(meta: OrganMeta, shape: Extract<OrganShape, { kind: "pair" }>): Mesh[] {
     const out: Mesh[] = [];
     for (const side of [-1, 1]) {
-      const m = this.sphereMesh(this.organMaterial(meta.color), shape.radius);
+      const m = this.sphereMesh(organTissue(meta.id, meta.color), shape.radius);
       m.position.x = (side * shape.gap) / 2;
       m.scale.y = shape.scaleY ?? 1;
       if (shape.tilt) m.rotation.z = side * shape.tilt;
@@ -289,7 +294,7 @@ export class BodyBuilder {
 
   // 코: 위로 갈수록 가늘어지는 마름모 콧대 + 둥근 끝 + 콧구멍 2개
   private buildNasal(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const bridgeGeo = new CylinderGeometry(0.07, 0.19, 0.36, 4, 1);
     bridgeGeo.rotateY(Math.PI / 4); // 마름모 단면(모서리가 상하좌우)
     bridgeGeo.rotateX(-Math.PI / 2); // 축을 +z(얼굴 앞)로 — 넓은 아랫면이 콧끝
@@ -298,7 +303,7 @@ export class BodyBuilder {
     const tip = new Mesh(new SphereGeometry(0.115, 24, 16), mat);
     tip.scale.set(1.05, 0.95, 0.85);
     tip.position.set(0, -0.03, 0.19);
-    const nostrilMat = this.organMaterial(0x8a4640);
+    const nostrilMat = tissueColor(0x8a4640);
     const out: Mesh[] = [bridge, tip];
     for (const side of [-1, 1]) {
       const nostril = new Mesh(new SphereGeometry(0.044, 16, 12), nostrilMat);
@@ -311,7 +316,7 @@ export class BodyBuilder {
 
   // 입: 윗입술(큐피드 활)·아랫입술 익스트루드 — 입술 사이 접촉선이 자연스러운 입
   private buildLips(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     mat.roughness = 0.32;
     mat.clearcoat = 0.55;
     const opts = {
@@ -351,7 +356,7 @@ export class BodyBuilder {
 
   // J자 위주머니: 눌린 구 + 토스 호
   private buildStomach(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const body = this.sphereMesh(mat, 0.6, { x: 0.95, y: 1.2, z: 0.78 });
     body.position.set(0.08, 0.18, 0);
     const hook = new Mesh(new TorusGeometry(0.38, 0.19, 20, 36, Math.PI * 1.15), mat);
@@ -362,7 +367,7 @@ export class BodyBuilder {
 
   // 간: −x(신체 오른쪽)에 납작한 쐐기 + 작은 엽
   private buildLiver(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const main = this.sphereMesh(mat, 0.95, { x: 1.3, y: 0.6, z: 0.9 });
     main.position.set(0, 0.08, 0);
     main.rotation.z = 0.1;
@@ -372,7 +377,7 @@ export class BodyBuilder {
   }
 
   private buildPancreas(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const body = new Mesh(new CapsuleGeometry(0.18, 1.15, 10, 24), mat);
     body.position.set(0.18, -0.05, 0);
     body.rotation.z = 0.45;
@@ -420,11 +425,11 @@ export class BodyBuilder {
 
   // 심장: 기울어진 타원체 + 혈관 단 4개(동맥 2 적색, 정맥 2 청색)
   private buildHeart(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const body = this.sphereMesh(mat, 0.55, { x: 1, y: 1.18, z: 0.9 });
     body.rotation.z = 0.4;
-    const arterial = this.organMaterial(0xd64545);
-    const venous = this.organMaterial(0x4d79d6);
+    const arterial = tissueColor(0xd64545);
+    const venous = tissueColor(0x4d79d6);
     const stub = (mat2: MeshStandardMaterial, x: number, y: number, z: number, rotZ: number): Mesh => {
       const m = new Mesh(new CapsuleGeometry(0.08, 0.34, 8, 20), mat2);
       m.position.set(x, y, z);
@@ -444,7 +449,7 @@ export class BodyBuilder {
   private buildBeanPair(meta: OrganMeta, shape: Extract<OrganShape, { kind: "beanPair" }>): Mesh[] {
     const out: Mesh[] = [];
     for (const side of [-1, 1]) {
-      const m = this.sphereMesh(this.organMaterial(meta.color), 0.42, { x: 0.72, y: 1.15, z: 0.6 });
+      const m = this.sphereMesh(organTissue(meta.id, meta.color), 0.42, { x: 0.72, y: 1.15, z: 0.6 });
       m.position.set((side * (shape.gap ?? 1.1)) / 2, 0, 0);
       m.rotation.y = -side * 0.4;
       m.rotation.z = side * 0.12;
@@ -470,7 +475,7 @@ export class BodyBuilder {
 
   // 허파꽈리 포도송이: 반경 0.3 안에 14개 결정론적 배치
   private buildAlveoli(meta: OrganMeta): Mesh[] {
-    const mat = this.organMaterial(meta.color);
+    const mat = organTissue(meta.id, meta.color);
     const geo = new SphereGeometry(1, 20, 14);
     const out: Mesh[] = [];
     const count = 14;
@@ -489,47 +494,18 @@ export class BodyBuilder {
   }
 
   private buildDiaphragm(meta: OrganMeta): Mesh[] {
-    const mat = new MeshPhysicalMaterial({
-      color: meta.color,
-      roughness: 0.42,
-      metalness: 0,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.5,
-      envMapIntensity: 1.1,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      side: DoubleSide,
-    });
+    const mat = organTissue(meta.id, meta.color);
+    mat.opacity = 0.55;
+    mat.transparent = true;
+    mat.depthWrite = false;
     const dome = new Mesh(new SphereGeometry(2.0, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), mat);
     dome.scale.set(1.12, 0.42, 0.85);
     return [dome];
   }
 
   private buildMuscleCell(meta: OrganMeta): Mesh[] {
-    const shellMat = new MeshPhysicalMaterial({
-      color: meta.color,
-      roughness: 0.42,
-      metalness: 0,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.5,
-      envMapIntensity: 1.1,
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
-    });
-    const shell = new Mesh(new SphereGeometry(0.5, 32, 24), shellMat);
-    const nucleusMat = new MeshPhysicalMaterial({
-      color: 0xe8a13a,
-      roughness: 0.35,
-      metalness: 0,
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.4,
-      envMapIntensity: 1.2,
-      emissive: 0xffdf6b,
-      emissiveIntensity: 0.6,
-    });
-    const nucleus = new Mesh(new SphereGeometry(0.17, 24, 16), nucleusMat);
+    const shell = new Mesh(new SphereGeometry(0.5, 32, 24), membrane(meta.color, 0.45));
+    const nucleus = new Mesh(new SphereGeometry(0.17, 24, 16), glowing(0xe8a13a, 0xffdf6b, 0.6));
     return [shell, nucleus];
   }
 
@@ -587,6 +563,8 @@ export class BodyBuilder {
       mesh.userData.organId = id;
       mesh.matrixAutoUpdate = true; // 호흡 등 애니메이션이 스케일/위치를 바꿀 수 있음
       mesh.matrixWorldAutoUpdate = true;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
     }
     if (prev.system === "cell") this.cellGroup.add(group);
     else this.systemGroups[prev.system].add(group);

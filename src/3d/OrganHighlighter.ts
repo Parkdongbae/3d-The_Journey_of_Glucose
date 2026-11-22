@@ -153,6 +153,8 @@ export class OrganHighlighter {
         shell.scale.multiplyScalar(OUTLINE_SCALE);
         shell.userData.organId = organId;
         shell.renderOrder = 1;
+        shell.castShadow = false;
+        shell.receiveShadow = false;
         group.add(shell);
       }
       rec.group.add(group);

@@ -13,6 +13,7 @@ export interface ExplorePanelCallbacks {
   onToggleLayerPanel(): void;
   onOpacityChange(opacity: number): void;
   onLabelsToggle(on: boolean): void;
+  onToggleTheme(): void;
 }
 
 export interface ExplorePanelHandle {
@@ -26,6 +27,7 @@ export interface ExplorePanelHandle {
 }
 
 const ICON_HOME = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>`;
+const ICON_THEME = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>`;
 const ICON_MENU = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`;
 
 const LAYERS: readonly { layer: ExploreLayer; label: string }[] = [
@@ -43,6 +45,8 @@ export function createExplorePanel(cb: ExplorePanelCallbacks): ExplorePanelHandl
     <header class="hud-top glass">
       <button class="btn-icon" data-action="home" aria-label="홈으로 이동">${ICON_HOME}</button>
       <div class="hud-title"><span class="hud-course-name">자유 탐색</span></div>
+      <span class="hud-spacer"></span>
+      <button class="btn-icon" data-action="theme" aria-label="밝은 화면과 어두운 화면 전환">${ICON_THEME}</button>
       <button class="btn-icon layer-toggle" data-action="toggle-layer" aria-label="계통 패널 열기 닫기">${ICON_MENU}</button>
     </header>
 
@@ -83,6 +87,7 @@ export function createExplorePanel(cb: ExplorePanelCallbacks): ExplorePanelHandl
     const action = target.dataset.action;
     if (action === "home") cb.onHome();
     else if (action === "toggle-layer") cb.onToggleLayerPanel();
+    else if (action === "theme") cb.onToggleTheme();
     else if (action === "close-organ") showOrgan(null);
     else if (target.dataset.labels !== undefined) {
       const on = labelsChip.getAttribute("aria-pressed") !== "true";
