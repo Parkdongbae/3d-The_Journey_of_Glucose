@@ -1359,3 +1359,52 @@ img {
   justify-content: center;
   margin-top: 6px;
 }
+
+/* ---------- 13. 스튜디오 테마 ---------- */
+.hud-spacer {
+  flex: 1;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 다크 스튜디오: 3D 무대만 어두워지고 카드는 밝은 유리질을 유지해 글자 대비를 지킨다 */
+.app-root[data-theme="dark"] {
+  --glass: rgba(255, 255, 255, 0.9);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.35);
+  --shadow-2: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.app-root[data-theme="dark"] .home-scroll,
+.app-root[data-theme="dark"] .result-scroll {
+  background:
+    radial-gradient(120% 70% at 12% 0%, rgba(255, 159, 67, 0.16), transparent 55%),
+    radial-gradient(130% 80% at 88% 8%, rgba(77, 171, 247, 0.2), transparent 60%),
+    linear-gradient(180deg, rgba(9, 14, 28, 0.72), rgba(9, 14, 28, 0.5));
+}
+
+.app-root[data-theme="dark"] .home-header .app-title {
+  color: #f1f5fb;
+}
+
+.app-root[data-theme="dark"] .t-glucose {
+  color: #ffb155;
+}
+
+.app-root[data-theme="dark"] .t-oxygen {
+  color: #7cc4ff;
+}
+
+.app-root[data-theme="dark"] .home-footer .attribution,
+.app-root[data-theme="dark"] .home-footer .btn-text {
+  color: #aab4c6;
+}
+
+:has(> .app-root[data-theme="dark"]) > .label3d-layer .organ-label3d {
+  background: rgba(17, 25, 44, 0.86);
+  border-color: rgba(140, 180, 255, 0.6);
+  color: #eef3fb;
+}

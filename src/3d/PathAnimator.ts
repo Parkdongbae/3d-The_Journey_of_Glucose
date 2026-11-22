@@ -6,17 +6,20 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   SRGBColorSpace,
+  type Material,
+  type ShaderMaterial,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
+  TubeGeometry,
   Vector3,
   type Camera,
   type Object3D,
 } from "three";
 import type { CharacterType, PathDef } from "../types";
+import { candy, flowLine } from "./materials";
 
 const CHAR_RADIUS = 0.16;
 const TRAIL_COUNT = 12;
@@ -29,6 +32,8 @@ interface PlayState {
   t: number;
   resolve: () => void;
   root: Group;
+  guide: Mesh;
+  guideMat: ShaderMaterial;
 }
 
 interface CharacterBundle {
@@ -37,7 +42,7 @@ interface CharacterBundle {
   color: Color;
 }
 
-/** 스플라인 이동 캐릭터 + 잔상 트레일. 재생 중 카메라는 건드리지 않는다. */
+/** 스플라인 이동 캐릭터 + 경로 안내선 + 잔상 트레일. 재생 중 카메라는 건드리지 않는다. */
 export class PathAnimator {
   private characters = new Map<CharacterType, CharacterBundle>();
   private trailGroup = new Group();
@@ -58,10 +63,11 @@ export class PathAnimator {
         transparent: true,
         opacity: 0.3 * (1 - i / TRAIL_COUNT),
         depthWrite: false,
+        depthTest: false, // 기관 속을 지날 때도 보이게
       });
       const m = new Mesh(geo, mat);
       m.visible = false;
-      m.renderOrder = 7;
+      m.renderOrder = 5;
       this.trailMeshes.push(m);
       this.trailMaterials.push(mat);
       this.trailGroup.add(m);
@@ -84,7 +90,15 @@ export class PathAnimator {
     const bundle = this.getCharacter(character);
     bundle.root.visible = true;
     for (const mat of this.trailMaterials) mat.color.copy(bundle.color);
-    this.trailHistory[0]?.copy(bundle.root.position);
+    const start = curve.getPointAt(0);
+    for (const h of this.trailHistory) h.copy(start);
+
+    // 경로 안내선: 지나온 구간은 밝게, 남은 구간은 흐리게
+    const guideMat = flowLine(bundle.color);
+    const guide = new Mesh(new TubeGeometry(curve, Math.min(400, points.length * 24), 0.022, 6, def.closed === true), guideMat);
+    guide.renderOrder = 4;
+    guide.userData.noAO = true;
+    this.parent.add(guide);
 
     return new Promise<void>((resolve) => {
       this.active = {
@@ -94,6 +108,8 @@ export class PathAnimator {
         t: 0,
         resolve,
         root: bundle.root,
+        guide,
+        guideMat,
       };
     });
   }
@@ -104,6 +120,9 @@ export class PathAnimator {
     this.active = null;
     a.root.visible = false;
     for (const m of this.trailMeshes) m.visible = false;
+    this.parent.remove(a.guide);
+    a.guide.geometry.dispose();
+    a.guideMat.dispose();
     a.resolve();
   }
 
@@ -121,6 +140,11 @@ export class PathAnimator {
     a.root.quaternion.copy(this.camera.quaternion); // 항상 카메라 향함
     const inner = a.root.children[0];
     if (inner) inner.position.y = Math.sin(a.t * 5) * 0.035; // 살짝 출렁임
+
+    const gu = a.guideMat.uniforms;
+    if (gu.uTime) gu.uTime.value = a.t;
+    // 닫힌 경로는 한 바퀴 돈 뒤 전체를 밝힌다
+    if (gu.uHead) gu.uHead.value = a.curve.closed && progress >= 1 ? 1.1 : u;
 
     this.updateTrail(pos, dt);
 
@@ -175,21 +199,34 @@ export class PathAnimator {
 
     const bundle: CharacterBundle = { root, inner, color: new Color(0xffffff) };
 
-    const solid = (color: number, roughness = 0.4): MeshStandardMaterial => {
-      const mat = new MeshStandardMaterial({ color, roughness, metalness: 0 });
+    // 몸체: 사탕 광택(깊이 무시 — 기관 속에서도 보임). 얼굴: 몸체 위에 덧그리는 단색.
+    const solid = (color: number, roughness = 0.3): Material => {
+      const mat = candy(color, roughness);
       this.disposables.push(mat);
       return mat;
+    };
+    const face = (color: number): Material => {
+      const mat = new MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true });
+      this.disposables.push(mat);
+      return mat;
+    };
+    const onTop = (m: Mesh): Mesh => {
+      m.renderOrder = 7 + inner.children.length * 0.01;
+      return m;
     };
 
     switch (type) {
       case "glucose": {
         bundle.color.set(0xf6c445);
         inner.add(this.ball(solid(0xf6c445), CHAR_RADIUS, { x: 1, y: 1, z: 1 }));
-        const eyeMat = solid(0x333333, 0.5);
-        inner.add(this.ball(eyeMat, 0.022, undefined, -0.055, 0.045, 0.145));
-        inner.add(this.ball(eyeMat, 0.022, undefined, 0.055, 0.045, 0.145));
-        const smile = new Mesh(new TorusGeometry(0.06, 0.012, 6, 14, Math.PI), eyeMat);
-        smile.position.set(0, -0.01, 0.148);
+        const eyeMat = face(0x3a2a1a);
+        inner.add(onTop(this.ball(eyeMat, 0.024, undefined, -0.055, 0.045, 0.145)));
+        inner.add(onTop(this.ball(eyeMat, 0.024, undefined, 0.055, 0.045, 0.145)));
+        const cheek = face(0xff8a65);
+        inner.add(onTop(this.ball(cheek, 0.02, { x: 1.3, y: 0.8, z: 0.5 }, -0.095, -0.005, 0.125)));
+        inner.add(onTop(this.ball(cheek, 0.02, { x: 1.3, y: 0.8, z: 0.5 }, 0.095, -0.005, 0.125)));
+        const smile = onTop(new Mesh(new TorusGeometry(0.045, 0.01, 6, 14, Math.PI), eyeMat));
+        smile.position.set(0, -0.005, 0.148);
         smile.rotation.z = Math.PI;
         inner.add(smile);
         this.disposables.push(smile.geometry);
@@ -198,20 +235,25 @@ export class PathAnimator {
       case "oxygen": {
         bundle.color.set(0x4dabf7);
         inner.add(this.ball(solid(0x4dabf7), CHAR_RADIUS));
-        const white = solid(0xffffff, 0.3);
-        const pupil = solid(0x333333, 0.5);
+        const dark = face(0x0b2447);
+        const white = face(0xffffff);
         for (const side of [-1, 1]) {
-          inner.add(this.ball(white, 0.036, undefined, side * 0.06, 0.04, 0.138));
-          inner.add(this.ball(pupil, 0.016, undefined, side * 0.06, 0.04, 0.166));
+          inner.add(onTop(this.ball(dark, 0.034, { x: 0.85, y: 1.1, z: 0.5 }, side * 0.06, 0.035, 0.14)));
+          inner.add(onTop(this.ball(white, 0.012, undefined, side * 0.06 + 0.008, 0.05, 0.16)));
         }
+        const smile = onTop(new Mesh(new TorusGeometry(0.035, 0.009, 6, 14, Math.PI), dark));
+        smile.position.set(0, -0.03, 0.148);
+        smile.rotation.z = Math.PI;
+        inner.add(smile);
+        this.disposables.push(smile.geometry);
         break;
       }
       case "co2": {
         bundle.color.set(0x9aa3ad);
         inner.add(this.ball(solid(0x9aa3ad), CHAR_RADIUS * 0.95));
-        const eyeMat = solid(0x4a4f55, 0.5);
-        inner.add(this.ball(eyeMat, 0.02, undefined, -0.055, 0.04, 0.138));
-        inner.add(this.ball(eyeMat, 0.02, undefined, 0.055, 0.04, 0.138));
+        const eyeMat = face(0x3b4046);
+        inner.add(onTop(this.ball(eyeMat, 0.02, undefined, -0.055, 0.04, 0.138)));
+        inner.add(onTop(this.ball(eyeMat, 0.02, undefined, 0.055, 0.04, 0.138)));
         break;
       }
       case "water": {
@@ -254,10 +296,12 @@ export class PathAnimator {
       blending: AdditiveBlending,
       transparent: true,
       depthWrite: false,
+      depthTest: false,
+      opacity: 0.7,
     });
     const glow = new Sprite(glowMat);
     glow.scale.setScalar(0.85);
-    glow.renderOrder = 8;
+    glow.renderOrder = 5.5; // 몸체(6) 뒤 후광
     inner.add(glow);
     this.disposables.push(glowMat);
 
@@ -265,7 +309,7 @@ export class PathAnimator {
   }
 
   private ball(
-    mat: MeshStandardMaterial,
+    mat: Material,
     r: number,
     scale?: { x: number; y: number; z: number },
     x = 0,

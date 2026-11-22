@@ -18,6 +18,7 @@ import type {
   SaveData,
   Scene,
   SystemName,
+  ThemeName,
 } from "../types";
 export type { Scene } from "../types";
 import { COURSES } from "../data/courses";
@@ -31,6 +32,19 @@ import { createQuizPanel, type QuizPanelHandle } from "./QuizPanel";
 import { createResultScreen, type ResultScreenHandle } from "./ResultScreen";
 
 const ALL_SYSTEMS: SystemName[] = ["digestive", "respiratory", "circulatory", "excretory"];
+const THEME_KEY = "jog3d-theme";
+/** 시점 보정에 반영할 패널들 (현재 화면에서 보이는 것만) */
+const INSET_SELECTOR = ".hud-top, .layer-panel, .step-panel, .quiz-card, .organ-card";
+
+function loadTheme(): ThemeName {
+  try {
+    const saved = window.localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    // 저장소 접근 불가 — 기본값 사용
+  }
+  return "light";
+}
 
 class App {
   private readonly scene: Scene;
@@ -50,6 +64,8 @@ class App {
   private activeLayer: LayerSelection = "all";
   private exploreLayer: ExploreLayer = "all";
   private labelsOn = false;
+  private theme: ThemeName = loadTheme();
+  private insetsQueued = false;
 
   constructor(root: HTMLElement, scene: Scene) {
     this.root = root;
@@ -90,6 +106,7 @@ class App {
       onExplore: () => this.enterExplore(),
       onShowResult: () => this.openResult(),
       onResetProgress: () => this.resetAll(),
+      onToggleTheme: () => this.toggleTheme(),
     });
 
     this.hud = createCourseHud({
@@ -100,9 +117,13 @@ class App {
       onReplay: () => this.enterStep(this.stepIndex),
       onOpenQuiz: () => this.openQuizPanel(),
       onLayerSelect: (layer) => this.selectCourseLayer(layer),
-      onToggleLayerPanel: () => this.hud.setLayerPanelOpen(!this.hud.isLayerPanelOpen()),
+      onToggleLayerPanel: () => {
+        this.hud.setLayerPanelOpen(!this.hud.isLayerPanelOpen());
+        this.queueInsets(320);
+      },
       onOpacityChange: (v) => this.scene.setSystemOpacity(this.activeLayer === "all" ? "all" : this.activeLayer, v),
       onLabelsToggle: (on) => this.setLabels(on),
+      onToggleTheme: () => this.toggleTheme(),
     });
 
     this.quiz = createQuizPanel({
@@ -115,9 +136,13 @@ class App {
       onHome: () => this.goHome(),
       onLayerSelect: (layer) => this.selectExploreLayer(layer),
       onSkeletonToggle: (on) => this.setSkeleton(on),
-      onToggleLayerPanel: () => this.explore.setLayerPanelOpen(!this.explore.isLayerPanelOpen()),
+      onToggleLayerPanel: () => {
+        this.explore.setLayerPanelOpen(!this.explore.isLayerPanelOpen());
+        this.queueInsets(320);
+      },
       onOpacityChange: (v) => this.scene.setSystemOpacity(this.exploreLayer === "all" ? "all" : this.exploreLayer, v),
       onLabelsToggle: (on) => this.setLabels(on),
+      onToggleTheme: () => this.toggleTheme(),
     });
 
     this.result = createResultScreen({
@@ -135,6 +160,9 @@ class App {
     for (const section of Object.values(this.sections)) this.root.appendChild(section);
 
     window.addEventListener("keydown", (e) => this.onKeydown(e));
+    window.addEventListener("resize", () => this.queueInsets());
+    new ResizeObserver(() => this.queueInsets()).observe(this.root);
+    this.applyTheme();
 
     this.home.update(this.save);
     this.show("home");
@@ -150,6 +178,65 @@ class App {
     for (const key of Object.keys(this.sections) as AppScreen[]) {
       this.sections[key].hidden = key !== screen;
     }
+    this.queueInsets();
+  }
+
+  // ---------- 테마 / 시점 보정 ----------
+  private toggleTheme(): void {
+    this.theme = this.theme === "light" ? "dark" : "light";
+    try {
+      window.localStorage.setItem(THEME_KEY, this.theme);
+    } catch {
+      // 저장 실패는 무시 (이번 실행에만 적용)
+    }
+    this.applyTheme();
+  }
+
+  private applyTheme(): void {
+    this.root.dataset.theme = this.theme;
+    this.scene.setTheme(this.theme);
+  }
+
+  /** 패널 배치가 바뀔 수 있는 시점마다 호출 — 다음 프레임(또는 전환 애니메이션 뒤)에 한 번만 잰다 */
+  private queueInsets(delayMs = 0): void {
+    if (delayMs > 0) {
+      window.setTimeout(() => this.queueInsets(), delayMs);
+      return;
+    }
+    if (this.insetsQueued) return;
+    this.insetsQueued = true;
+    requestAnimationFrame(() => {
+      this.insetsQueued = false;
+      this.measureInsets();
+    });
+  }
+
+  private measureInsets(): void {
+    const insets = { left: 0, right: 0, top: 0, bottom: 0 };
+    const host = this.root.getBoundingClientRect();
+    const W = host.width;
+    const H = host.height;
+    if (W > 0 && H > 0 && (this.screen === "course" || this.screen === "explore")) {
+      for (const el of this.sections[this.screen].querySelectorAll<HTMLElement>(INSET_SELECTOR)) {
+        const r = el.getBoundingClientRect();
+        const x0 = Math.max(r.left - host.left, 0);
+        const x1 = Math.min(r.right - host.left, W);
+        const y0 = Math.max(r.top - host.top, 0);
+        const y1 = Math.min(r.bottom - host.top, H);
+        if (x1 - x0 < 8 || y1 - y0 < 8) continue; // 숨김·화면 밖
+        if (x1 - x0 > W * 0.6) {
+          // 가로 띠: 위/아래
+          if ((y0 + y1) / 2 < H / 2) insets.top = Math.max(insets.top, y1);
+          else insets.bottom = Math.max(insets.bottom, H - y0);
+        } else if ((x0 + x1) / 2 < W / 2) insets.left = Math.max(insets.left, x1);
+        else insets.right = Math.max(insets.right, W - x0);
+      }
+      // 패널이 화면 대부분을 덮어도 피사체 영역은 남긴다
+      insets.bottom = Math.min(insets.bottom, H * 0.5);
+      insets.right = Math.min(insets.right, W * 0.45);
+      insets.left = Math.min(insets.left, W * 0.45);
+    }
+    this.scene.setViewInsets(insets);
   }
 
   private goHome(): void {
@@ -295,6 +382,7 @@ class App {
     if (quiz === undefined) return;
     const wrongCount = this.courseProgress(this.course.id).quizResults[quizId]?.wrongCount ?? 0;
     this.quiz.open(quiz, wrongCount);
+    this.queueInsets();
     this.updateCourseHud();
   }
 
@@ -346,6 +434,7 @@ class App {
       activeLayer: this.activeLayer,
     };
     this.hud.update(state);
+    this.queueInsets();
   }
 
   // ---------- 레이어 / 골격 ----------
@@ -385,6 +474,7 @@ class App {
       this.scene.isolateOrgans([organId]);
       this.scene.highlight([organId]);
       this.explore.showOrgan({ label: organ.label, description: organ.description });
+      this.queueInsets();
     });
     this.setSkeleton(true);
     this.explore.setActiveLayer("all");

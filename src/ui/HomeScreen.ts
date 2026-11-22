@@ -5,14 +5,15 @@
  */
 import type { Course, CourseId, SaveData } from "../types";
 import { COURSES } from "../data/courses";
-import glucoseThumb from "../../../images/포도당_기본.jpg";
-import oxygenThumb from "../../../images/oxygen/Oxygen Mascot Character.jpg";
+import glucoseThumb from "../assets/mascots/glucose.jpg";
+import oxygenThumb from "../assets/mascots/oxygen.png";
 
 export interface HomeScreenCallbacks {
   onStartCourse(courseId: CourseId): void;
   onExplore(): void;
   onShowResult(courseId: CourseId): void;
   onResetProgress(): void;
+  onToggleTheme(): void;
 }
 
 export interface HomeScreenHandle {
@@ -102,7 +103,10 @@ export function createHomeScreen(callbacks: HomeScreenCallbacks): HomeScreenHand
       </div>
       <footer class="home-footer">
         <span class="attribution">3D 골격 모델: Z-Anatomy (CC BY-SA 4.0)</span>
-        <button class="btn btn-text" data-action="reset">학습 기록 초기화</button>
+        <div class="footer-actions">
+          <button class="btn btn-text" data-action="theme">화면 밝기 전환</button>
+          <button class="btn btn-text" data-action="reset">학습 기록 초기화</button>
+        </div>
       </footer>
     </div>`;
 
@@ -112,6 +116,10 @@ export function createHomeScreen(callbacks: HomeScreenCallbacks): HomeScreenHand
     const action = target.dataset.action;
     if (action === "explore") {
       callbacks.onExplore();
+      return;
+    }
+    if (action === "theme") {
+      callbacks.onToggleTheme();
       return;
     }
     if (action === "reset") {

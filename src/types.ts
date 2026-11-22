@@ -53,6 +53,19 @@ export interface Vec3 {
   z: number;
 }
 
+/** 렌더 품질: auto는 기기 성능·프레임을 보고 스스로 낮춘다 */
+export type QualityLevel = "auto" | "high" | "low";
+
+export type ThemeName = "light" | "dark";
+
+/** UI 패널이 캔버스를 가린 폭(px) — 남은 영역 중앙에 피사체를 둔다 */
+export interface ViewInsets {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
 export interface CameraView {
   position: Vec3;
   target: Vec3;
@@ -208,8 +221,8 @@ export interface SceneApi {
   isolateOrgans(organIds: string[] | null): void;
   /** 계통(또는 전체) 머티리얼 불투명도 0..1 — Zygote식 계통 투명도 조절 */
   setSystemOpacity(target: SystemName | "all", opacity: number): void;
-  /** 저사양 감소 옵션 */
-  setQuality(level: "low" | "high"): void;
+  /** 렌더 품질 (기본 auto) */
+  setQuality(level: QualityLevel): void;
   resize(): void;
   dispose(): void;
 }
@@ -228,4 +241,8 @@ export interface Scene extends SceneApi {
   onHoverChange(cb: (organId: string | null) => void): void;
   /** 인터랙티브 상태에서 빈 공간 클릭 (탐색 격리 해제용) */
   onEmptyClick(cb: () => void): void;
+  /** 스튜디오 테마(밝음/다크) 전환 */
+  setTheme(theme: ThemeName): void;
+  /** UI 패널이 가린 영역 통지 → 시점 중심 보정 */
+  setViewInsets(insets: ViewInsets): void;
 }

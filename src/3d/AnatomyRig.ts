@@ -1,23 +1,13 @@
-import { Box3, Color, Group, MathUtils, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Vector3 } from "three";
+import { Box3, Group, Mesh, type MeshStandardMaterial, Vector3 } from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import skeletonUrl from "../assets/skeleton.glb?url";
 import organsUrl from "../assets/organs.glb?url";
 import { ORGAN_MAP } from "../data/organs";
 import type { BodyBuilder } from "./BodyBuilder";
+import { bone, organTissue } from "./materials";
 
-const BONE_COLOR = 0xe8e4da;
 const TARGET_HEIGHT = 15.4;
-const TINT_MIX = 0.18;
-/** 심장·폐 등 구분이 중요한 기관은 채도를 더 살린다 (흰색 혼합 비율) */
-const TINT_OVERRIDE: Partial<Record<string, number>> = {
-  heart: 0.1,
-  lungs: 0.14,
-  liver: 0.12,
-  kidneys: 0.12,
-  smallIntestine: 0.12,
-  largeIntestine: 0.14,
-};
 
 const loadGltf = (loader: GLTFLoader, url: string): Promise<GLTF> =>
   new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject));
@@ -88,23 +78,18 @@ export class AnatomyRig {
   }
 
   private applyBoneMaterial(model: Group): void {
-    const boneMat = new MeshStandardMaterial({
-      color: BONE_COLOR,
-      roughness: 0.8,
-      metalness: 0,
-      transparent: true,
-      opacity: 0.95,
-    });
+    const boneMat = bone();
     model.traverse((obj) => {
       if (obj instanceof Mesh) {
         obj.material = boneMat;
+        obj.castShadow = true;
+        obj.receiveShadow = true;
         obj.userData.isSkeleton = true; // 기관 레이캐스트 제외 마커
       }
     });
   }
 
   private adoptOrgans(root: Group, body: BodyBuilder): number {
-    const white = new Color(0xffffff);
     const byName = new Map<string, Mesh[]>();
     root.updateMatrixWorld(true);
     const rootMatrix = root.matrixWorld.clone();
@@ -127,16 +112,7 @@ export class AnatomyRig {
       const materials: MeshStandardMaterial[] = [];
       for (const mesh of meshes) {
         mesh.removeFromParent();
-        const src = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-        const tint = new Color(meta.color).lerp(white, TINT_OVERRIDE[id] ?? TINT_MIX);
-        const mat = new MeshPhysicalMaterial({
-          color: tint,
-          roughness: src && "roughness" in src ? MathUtils.clamp((src as MeshPhysicalMaterial).roughness, 0.35, 0.6) : 0.5,
-          metalness: 0,
-          clearcoat: 0.35,
-          clearcoatRoughness: 0.5,
-          envMapIntensity: 1.1,
-        });
+        const mat = organTissue(id, meta.color);
         mesh.material = mat;
         materials.push(mat);
         group.add(mesh);

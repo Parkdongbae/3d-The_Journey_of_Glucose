@@ -18,6 +18,7 @@ export interface CourseHudCallbacks {
   onToggleLayerPanel(): void;
   onOpacityChange(opacity: number): void;
   onLabelsToggle(on: boolean): void;
+  onToggleTheme(): void;
 }
 
 export interface CourseHudState {
@@ -41,6 +42,7 @@ export interface CourseHudHandle {
 
 const ICON_HOME = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>`;
 const ICON_MENU = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`;
+const ICON_THEME = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>`;
 const ICON_REPLAY = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>`;
 
 /** 코스 강조색 그라데이션 끝점 */
@@ -71,6 +73,7 @@ export function createCourseHud(cb: CourseHudCallbacks): CourseHudHandle {
       <button class="btn btn-ghost hud-replay" data-action="replay">
         ${ICON_REPLAY}<span class="replay-label">이 단계 다시 보기</span>
       </button>
+      <button class="btn-icon" data-action="theme" aria-label="밝은 화면과 어두운 화면 전환">${ICON_THEME}</button>
       <button class="btn-icon layer-toggle" data-action="toggle-layer" aria-label="계통 패널 열기 닫기">${ICON_MENU}</button>
     </header>
 
@@ -116,6 +119,7 @@ export function createCourseHud(cb: CourseHudCallbacks): CourseHudHandle {
     const action = target.dataset.action;
     if (action === "home") cb.onHome();
     else if (action === "replay") cb.onReplay();
+    else if (action === "theme") cb.onToggleTheme();
     else if (action === "toggle-layer") cb.onToggleLayerPanel();
     else if (action === "prev") cb.onPrev();
     else if (action === "next") cb.onNext();
